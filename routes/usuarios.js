@@ -74,13 +74,12 @@ router.post("/",async (req, res) => {
     const hashedPassword = await bcrypt.hash(contrasena, 10);
 
     const request = pool.request();
-    request.input("Nombre", sql.NVarChar(100), nombre);
     request.input("Correo", sql.NVarChar(255), correo);
     request.input("ContrasenaHash", sql.NVarChar(256), hashedPassword);
 
     await request.query(`
-      INSERT INTO UsuariosVidal (Nombre, Correo, ContrasenaHash)
-      VALUES (@Nombre, @Correo, @ContrasenaHash)
+      INSERT INTO UsuariosVidal (Correo, ContrasenaHash)
+      VALUES (@Correo, @ContrasenaHash)
     `);
 
     res.status(201).json({ mensaje: "Usuario creado correctamente." });
@@ -309,7 +308,9 @@ router.post("/login", async (req, res) => {
     request.input("Correo", sql.NVarChar(255), correo);
 
     const result = await request.query(`
-      SELECT * FROM UsuariosVidal WHERE Correo = @Correo
+      SELECT IdUsuario, Correo, ContrasenaHash, Nombre
+      FROM UsuariosVidal 
+      WHERE Correo = @Correo
     `);
 
     if (result.recordset.length === 0) {
@@ -323,16 +324,27 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Correo o contraseña incorrectos." });
     }
 
+    const JWT_SECRET = process.env.JWT_SECRET || "spidersap";
+
     // Generar token JWT
     const token = jwt.sign(
-      { id: usuario.IdUsuario, correo: usuario.Correo },
-      SECRET_KEY,
+      { 
+        id: usuario.IdUsuario, 
+        correo: usuario.Correo,
+        nombre: usuario.Nombre 
+      },
+      JWT_SECRET,
       { expiresIn: "2h" }
     );
 
+    // Enviar respuesta exitosa
     res.json({
       mensaje: "Inicio de sesión exitoso.",
-      usuario: { id: usuario.IdUsuario, nombre: usuario.Nombre, correo: usuario.Correo },
+      usuario: {
+        id: usuario.IdUsuario,
+        nombre: usuario.Nombre,
+        correo: usuario.Correo
+      },
       token
     });
   } catch (error) {
