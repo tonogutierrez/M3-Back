@@ -14,20 +14,44 @@ const JWT_SECRET = process.env.JWT_SECRET || "spidersap";
  */
 
 const verifyToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
-    if (!token) {
-        return res.status(401).json({ error: "Token no proporcionado" });
-    }
-
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = decoded;
-        next();
+        const authHeader = req.headers['authorization'];
+        
+        if (!authHeader) {
+            return res.status(401).json({ 
+                error: "Acceso denegado", 
+                message: "Token no proporcionado" 
+            });
+        }
+
+        const token = authHeader.startsWith('Bearer ') 
+            ? authHeader.slice(7) 
+            : authHeader;
+
+        if (!token) {
+            return res.status(401).json({ 
+                error: "Acceso denegado", 
+                message: "Token no proporcionado o formato inválido" 
+            });
+        }
+
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            req.user = decoded;
+            next();
+        } catch (error) {
+            console.error("Error al verificar token:", error);
+            return res.status(403).json({ 
+                error: "Acceso denegado", 
+                message: "Token inválido o expirado" 
+            });
+        }
     } catch (error) {
-        console.error("Error al verificar token:", error);
-        return res.status(403).json({ error: "Token inválido" });
+        console.error("Error en middleware de autenticación:", error);
+        return res.status(500).json({ 
+            error: "Error del servidor", 
+            message: "Error al procesar la autenticación" 
+        });
     }
 };
 

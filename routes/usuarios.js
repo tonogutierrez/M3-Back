@@ -6,6 +6,8 @@ const jwt = require("jsonwebtoken");
 const verifyToken = require("../middleware/auth");
 const SECRET_KEY = "tu_clave_secreta"; // idealmente poner en .env
 
+const JWT_SECRET = process.env.JWT_SECRET || "spidersap";
+
 /**
  * @swagger
  * components:
@@ -258,8 +260,8 @@ router.put("/:id", verifyToken, async (req, res) => {
  * @swagger
  * /usuarios/login:
  *   post:
- *     summary: Iniciar sesión de usuario
- *     tags: [Usuarios]
+ *     summary: Iniciar sesión
+ *     tags: [Autenticación]
  *     requestBody:
  *       required: true
  *       content:
@@ -282,75 +284,97 @@ router.put("/:id", verifyToken, async (req, res) => {
  *             schema:
  *               type: object
  *               properties:
- *                 mensaje:
+ *                 token:
  *                   type: string
  *                 usuario:
  *                   $ref: '#/components/schemas/Usuario'
- *                 token:
- *                   type: string
- *       401:
- *         description: Credenciales inválidas
- *       500:
- *         description: Error del servidor
  */
-// POST /usuarios/login - iniciar sesión
 router.post("/login", async (req, res) => {
-  const { correo, contrasena } = req.body;
+    const { correo, contrasena } = req.body;
 
-  if (!correo || !contrasena) {
-    return res.status(400).json({ error: "Correo y contraseña son requeridos." });
-  }
-
-  try {
-    await poolConnect;
-
-    const request = pool.request();
-    request.input("Correo", sql.NVarChar(255), correo);
-
-    const result = await request.query(`
-      SELECT IdUsuario, Correo, ContrasenaHash, Nombre
-      FROM UsuariosVidal 
-      WHERE Correo = @Correo
-    `);
-
-    if (result.recordset.length === 0) {
-      return res.status(401).json({ error: "Correo o contraseña incorrectos." });
+    if (!correo || !contrasena) {
+        return res.status(400).json({ 
+            error: "Datos inválidos",
+            message: "El correo y la contraseña son requeridos" 
+        });
     }
 
-    const usuario = result.recordset[0];
-    const passwordMatch = await bcrypt.compare(contrasena, usuario.ContrasenaHash);
+    try {
+        await poolConnect;
+        const request = pool.request();
+        request.input("Correo", sql.NVarChar(255), correo);
 
-    if (!passwordMatch) {
-      return res.status(401).json({ error: "Correo o contraseña incorrectos." });
+        const result = await request.query(`
+            SELECT * FROM UsuariosVidal 
+            WHERE Correo = @Correo
+        `);
+
+        if (result.recordset.length === 0) {
+            return res.status(401).json({ 
+                error: "Acceso denegado",
+                message: "Credenciales inválidas" 
+            });
+        }
+
+        const usuario = result.recordset[0];
+        const validPassword = await bcrypt.compare(contrasena, usuario.ContrasenaHash);
+
+        if (!validPassword) {
+            return res.status(401).json({ 
+                error: "Acceso denegado",
+                message: "Credenciales inválidas" 
+            });
+        }
+
+        const token = jwt.sign(
+            { 
+                id: usuario.IdUsuario, 
+                correo: usuario.Correo 
+            },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        // No enviar la contraseña en la respuesta
+        const { ContrasenaHash, ...usuarioSinContrasena } = usuario;
+
+        res.json({
+            token,
+            usuario: usuarioSinContrasena,
+            message: "Login exitoso"
+        });
+
+    } catch (error) {
+        console.error("Error en login:", error);
+        res.status(500).json({ 
+            error: "Error del servidor",
+            message: "Error al procesar el login" 
+        });
     }
+});
 
-    const JWT_SECRET = process.env.JWT_SECRET || "spidersap";
-
-    // Generar token JWT
-    const token = jwt.sign(
-      { 
-        id: usuario.IdUsuario, 
-        correo: usuario.Correo,
-        nombre: usuario.Nombre 
-      },
-      JWT_SECRET,
-      { expiresIn: "2h" }
-    );
-
-    // Enviar respuesta exitosa
-    res.json({
-      mensaje: "Inicio de sesión exitoso.",
-      usuario: {
-        id: usuario.IdUsuario,
-        nombre: usuario.Nombre,
-        correo: usuario.Correo
-      },
-      token
+/**
+ * @swagger
+ * /usuarios/verify-token:
+ *   get:
+ *     summary: Verificar token
+ *     tags: [Autenticación]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Token válido
+ *       401:
+ *         description: Token no proporcionado
+ *       403:
+ *         description: Token inválido
+ */
+router.get("/verify-token", verifyToken, (req, res) => {
+    res.json({ 
+        valid: true, 
+        user: req.user,
+        message: "Token válido" 
     });
-  } catch (error) {
-    console.error("Error al iniciar sesión:", error);
-    res.status(500).json({ error: "Error al procesar la solicitud de inicio de sesión." });
-  }
 });
 
 module.exports = router;
